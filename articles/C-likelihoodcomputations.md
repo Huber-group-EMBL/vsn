@@ -1,0 +1,330 @@
+# Likelihood Calculations for vsn
+
+## Introduction
+
+This vignette contains the computations that underlie the numerical code
+of *[vsn](https://bioconductor.org/packages/3.23/vsn)*. If you are a new
+user and looking for an introduction on how to **use**
+*[vsn](https://bioconductor.org/packages/3.23/vsn)*, please refer to the
+vignette **Robust calibration and variance stabilization with
+*[vsn](https://bioconductor.org/packages/3.23/vsn)***, which is provided
+separately.
+
+## Setup and Notation
+
+Consider the model:
+
+``` math
+\begin{equation}
+\text{arsinh}\left(f(b_i)\cdot y_{ki}+a_i\right) = \mu_k + \varepsilon_{ki}
+(\#eq:model)
+\end{equation}
+```
+
+where $`\mu_k`$, for $`k=1,\ldots,n`$, and $`a_i`$, $`b_i`$, for
+$`i=1,\ldots,d`$ are real-valued parameters, $`f`$ is a function
+$`\mathbb{R}\to\mathbb{R}`$ (see below), and $`\varepsilon_{ki}`$ are
+i.i.d. Normal with mean 0 and variance $`\sigma^2`$. $`y_{ki}`$ are the
+data. In applications to $`\mu`$array data, $`k`$ indexes the features
+and $`i`$ the arrays and/or colour channels.
+
+Examples for $`f`$ are $`f(b)=b`$ and $`f(b)=e^b`$. The former is the
+most obvious choice; in that case we will usually need to require
+$`b_i>0`$. The choice $`f(b)=e^b`$ assures that the factor in front of
+$`y_{ki}`$ is positive for all $`b\in\mathbb{R}`$, and as it turns out,
+simplifies some of the computations.
+
+In the following calculations, I will also use the notation
+
+``` math
+\begin{align}
+Y \equiv Y(y,a,b) &=              f(b)\cdot y+a\\
+h \equiv h(y,a,b) &= \text{arsinh}\left(f(b)\cdot y+a\right).
+\end{align}
+```
+
+The probability of the data $`(y_{ki})_{k=1\ldots n,\;i=1\ldots d}`$
+lying in a certain volume element of $`y`$-space (hyperrectangle with
+sides $`[y_{ki}^\alpha,y_{ki}^\beta]`$) is
+
+``` math
+\begin{equation}
+P=\prod_{k=1}^n\prod_{i=1}^d
+\int\limits_{y_{ki}^\alpha}^{y_{ki}^\beta} dy_{ki}\;\;
+p_{\text{Normal}}(h(y_{ki}),\mu_k,\sigma^2)\;\;
+\frac{dh}{dy}(y_{ki}),
+\end{equation}
+```
+where $`\mu_k`$ is the expectation value for feature $`k`$ and
+$`\sigma^2`$ the variance.
+
+With
+
+``` math
+\begin{equation}
+p_{\text{Normal}}(x,\mu,\sigma^2)=\frac{1}{\sqrt{2\pi\sigma^2}}
+\exp\left(-\frac{(x-\mu)^2}{2\sigma^2}\right)
+\end{equation}
+```
+
+the likelihood is
+
+``` math
+\begin{equation}
+L=\left(\frac{1}{\sqrt{2\pi\sigma^2}}\right)^{nd}
+\prod_{k=1}^n \prod_{i=1}^d
+\exp\left(-\frac{(h(y_{ki})-\mu_k)^2}{2\sigma^2}\right)
+\cdot\frac{dh}{dy}(y_{ki})\,.
+(\#eq:likelihood)
+\end{equation}
+```
+
+For the following, I will need the derivatives
+
+``` math
+\begin{align}
+\frac{\partial Y}{\partial a}&=1\\
+\frac{\partial Y}{\partial b}&=y\cdot f'(b)\\
+\frac{dh}{dy}&=
+\frac{f(b)}{\sqrt{1+(f(b)y+a)^2}}=
+\frac{f(b)}{\sqrt{1+Y^2}},\\
+\frac{\partial h}{\partial a}&=\frac{1}{\sqrt{1+Y^2}},\\
+\frac{\partial h}{\partial b}&=\frac{y}{\sqrt{1+Y^2}}\cdot f'(b).
+\end{align}
+```
+
+Note that for $`f(b)=b`$, we have $`f'(b)=1`$, and for $`f(b)=e^b`$,
+$`f'(b)=f(b)=e^b`$.
+
+## Likelihood for Incremental Normalization
+
+Here, *incremental normalization* means that the model parameters
+$`\mu_1,\ldots,\mu_n`$ and $`\sigma^2`$ are already known from a fit to
+a previous set of $`\mu`$arrays, i.,e. a set of reference arrays. See
+Section @ref(sec:prof) for the profile likelihood approach that is used
+if $`\mu_1,\ldots,\mu_n`$ and $`\sigma^2`$ are not known and need to be
+estimated from the same data. Versions $`\ge2.0`$ of the
+*[vsn](https://bioconductor.org/packages/3.23/vsn)* package implement
+both of these approaches; in versions $`1.X`$ only the profile
+likelihood approach was implemented, and it was described in the initial
+publication (Huber et al. 2002).
+
+First, let us note that the likelihood @ref(eq:likelihood) is simply a
+product of independent terms for different $`i`$. We can optimize the
+parameters $`(a_i,b_i)`$ separately for each $`i=1,\ldots,d`$. From the
+likelihood @ref(eq:likelihood) we get the $`i`$-th negative
+log-likelihood
+
+``` math
+\begin{align}
+-\log(L) &=\sum_{i=1}^d -LL_i\\
+-LL_i&=\frac{n}{2}\log\left(2\pi\sigma^2\right)+
+\sum_{k=1}^n \left(\frac{(h(y_{ki})-\mu_k)^2}{2\sigma^2}
++\log\frac{\sqrt{1+Y_{ki}^2}}{f(b_i)}\right)\\
+&=\frac{n}{2}\log\left(2\pi\sigma^2\right)
+-n\log f(b_i)
++\sum_{k=1}^n\left(\frac{(h(y_{ki})-\mu_k)^2}{2\sigma^2}
++\frac{1}{2}\log\left(1+Y_{ki}^2\right)\right)
+(\#eq:nll)
+\end{align}
+```
+
+This is what we want to optimize as a function of $`a_i`$ and $`b_i`$.
+The optimizer benefits from the derivatives. The derivative with respect
+to $`a_i`$ is
+
+``` math
+\begin{align}
+\frac{\partial}{\partial a_i}(-LL_i) &=
+\sum_{k=1}^n \left( \frac{h(y_{ki})-\mu_k}{\sigma^2}
++\frac{Y_{ki}}{\sqrt{1+Y_{ki}^2}} \right)
+\cdot\frac{1}{\sqrt{1+Y_{ki}^2}}
+\nonumber\\
+&= \sum_{k=1}^n 
+\left(\frac{r_{ki}}{\sigma^2}+A_{ki}Y_{ki}\right)A_{ki}
+(\#eq:ddanll)
+\end{align}
+```
+
+and with respect to $`b_i`$
+
+``` math
+\begin{align}
+\frac{\partial}{\partial b_i}(-LL_i) &=
+-n\frac{f'(b_i)}{f(b_i)} 
++\sum_{k=1}^n \left( \frac{h(y_{ki})-\mu_k}{\sigma^2}
++\frac{Y_{ki}}{\sqrt{1+Y_{ki}^2}}\right)
+\cdot\frac{y_{ki}}{\sqrt{1+Y_{ki}^2}}\cdot f'(b_i)
+\nonumber\\
+&=
+-n\frac{f'(b_i)}{f(b_i)} 
++f'(b_i)\sum_{k=1}^n \left(\frac{r_{ki}}{\sigma^2}+A_{ki}Y_{ki}\right)
+A_{ki}y_{ki}
+(\#eq:ddbnll)
+\end{align}
+```
+
+Here, I have introduced the following shorthand notation for the
+“intermediate results” terms
+
+``` math
+\begin{align}
+r_{ki}&= h(y_{ki})-\mu_k\\
+A_{ki}&=\frac{1}{\sqrt{1+Y_{ki}^2}}.
+\end{align}
+```
+
+Variables for these intermediate values are also used in the C code to
+organise the computations of the gradient.
+
+## Profile Likelihood
+
+If $`\mu_1,\ldots,\mu_n`$ and $`\sigma^2`$ are not already known, we can
+plug in their maximum likelihood estimates, obtained from optimizing
+$`LL`$ for $`\mu_1,\ldots,\mu_n`$ and $`\sigma^2`$:
+
+``` math
+\begin{align}
+\hat{\mu}_k &= \frac{1}{d}\sum_{j=1}^d h(y_{kj})
+(\#eq:muhat)\\
+\hat{\sigma}^2 &= \frac{1}{nd}\sum_{k=1}^n\sum_{j=1}^d 
+(h(y_{kj})-\hat{\mu}_k)^2
+(\#eq:sigmahat)
+\end{align}
+```
+
+into the negative log-likelihood. The result is called the negative
+profile log-likelihood
+
+``` math
+\begin{equation}
+-PLL=
+ \frac{nd}{2}\log\left(2\pi\hat{\sigma}^2\right)
++\frac{nd}{2}
+-n\sum_{j=1}^d\log f(b_j)
++\frac{1}{2}\sum_{k=1}^n\sum_{j=1}^d \log\sqrt{1+Y_{kj}^2}.
+(\#eq:npll)
+\end{equation}
+```
+
+Note that this no longer decomposes into a sum of terms for each $`j`$
+that are independent of each other – the terms for different $`j`$ are
+coupled through Equations @ref(eq:muhat) and @ref(eq:sigmahat). We need
+the following derivatives.
+
+``` math
+\begin{align}
+\frac{\partial \hat{\sigma}^2}{\partial a_i} &=
+\frac{2}{nd}\sum_{k=1}^n
+r_{ki}\frac{\partial h(y_{ki})}{\partial a_i}\nonumber\\
+&=
+\frac{2}{nd}
+\sum_{k=1}^n r_{ki}A_{ki}\\
+\frac{\partial \hat{\sigma}^2}{\partial b_i} &=
+\frac{2}{nd}\cdot f'(b_i)
+\sum_{k=1}^n r_{ki}A_{ki}y_{ki}
+\end{align}
+```
+
+So, finally
+
+``` math
+\begin{align}
+\frac{\partial}{\partial a_i}(-PLL) &=
+\frac{nd}{2\hat{\sigma}^2}\cdot 
+\frac{\partial \hat{\sigma}^2}{\partial a_i} 
++\sum_{k=1}^n A_{ki}^2Y_{ki}\nonumber\\
+&=\sum_{k=1}^n 
+\left(\frac{r_{ki}}{\hat{\sigma}^2}+A_{ki}Y_{ki}\right)A_{ki}
+(\#eq:ddanpll)\\
+\frac{\partial}{\partial b_i}(-PLL) &=
+-n\frac{f'(b_i)}{f(b_i)} 
++ f'(b_i) \sum_{k=1}^n 
+\left(\frac{r_{ki}}{\hat{\sigma}^2}+A_{ki}Y_{ki}\right)A_{ki}y_{ki}
+(\#eq:ddbnpll)
+\end{align}
+```
+
+## Summary
+
+Likelihoods, from Equations @ref(eq:nll) and @ref(eq:npll):
+
+``` math
+\begin{align}
+-LL_i&=
+\underbrace{%
+  \frac{n}{2}\log\left(2\pi\sigma^2\right)
+}_{\mbox{scale}} +
+\underbrace{%
+  \sum_{k=1}^n \frac{(h(y_{ki})-\mu_k)^2}{2\sigma^2}
+}_{\mbox{residuals}} 
+\underbrace{%
+  -n\log f(b_i) + 
+  \frac{1}{2}\sum_{k=1}^n \log(1+Y_{ki}^2)
+}_{\mbox{jacobian}}\\
+-PLL&=
+\underbrace{%
+\frac{nd}{2}\log\left(2\pi\hat{\sigma}^2\right)
+}_{\mbox{scale}}+
+\underbrace{%
+\frac{nd}{2}
+}_{\mbox{residuals}} +
+\underbrace{%  
+  \sum_{i=1}^d\left(
+  -n\log f(b_i) + 
+  \frac{1}{2}\sum_{k=1}^n \log(1+Y_{ki}^2)\right)
+}_{\mbox{jacobian}}
+\end{align}
+```
+
+The computations in the C code are organised into steps for computing
+the terms “scale”, “residuals” and “jacobian”.
+
+Partial derivatives with respect to $`a_i`$, from Equations
+@ref(eq:ddanll) and @ref(eq:ddanpll):
+
+``` math
+\begin{align}
+\frac{\partial}{\partial a_i}(-LL_i) &=
+\sum_{k=1}^n 
+\left(\frac{r_{ki}}{\sigma^2}+A_{ki}Y_{ki}\right)A_{ki}\\
+%
+\frac{\partial}{\partial a_i}(-PLL) &=
+\sum_{k=1}^n 
+\left(\frac{r_{ki}}{\hat{\sigma}^2}+A_{ki}Y_{ki}\right)A_{ki}
+\end{align}
+```
+
+Partial derivatives with respect to $`b_i`$, from Equations
+@ref(eq:ddbnll) and @ref(eq:ddbnpll):
+
+``` math
+\begin{align}
+\frac{\partial}{\partial b_i}(-LL_i) &=
+-n\frac{f'(b_i)}{f(b_i)}
++f'(b_i)\sum_{k=1}^n 
+\left(\frac{r_{ki}}{\sigma^2}+A_{ki}Y_{ki}\right)A_{ki}y_{ki}\\
+%
+\frac{\partial}{\partial b_i}(-PLL) &=
+-n\frac{f'(b_i)}{f(b_i)}
++f'(b_i)\sum_{k=1}^n 
+\left(\frac{r_{ki}}{\hat{\sigma}^2}+A_{ki}Y_{ki}\right)A_{ki}y_{ki}.
+\end{align}
+```
+
+Note that the terms have many similarities – this is used in the
+implementation in the C code.
+
+## References
+
+Huber, Wolfgang, Anja von Heydebreck, Holger Sültmann, Annemarie
+Poustka, and Martin Vingron. 2002. “Variance Stabilization Applied to
+Microarray Data Calibration and to the Quantification of Differential
+Expression.” *Bioinformatics* 18 Suppl 1: 96–104.
+<http://bioinformatics.oxfordjournals.org/content/18/suppl_1/S96.abstract>.
+
+Huber, Wolfgang, Anja von Heydebreck, Holger Sültmann, Annemarie
+Poustka, and Martin Vingron. 2003. “Parameter Estimation for the
+Calibration and Variance Stabilization of Microarray Data.” *Statistical
+Applications in Genetics and Molecular Biology* 2 (1): Article 3.
+<http://www.degruyter.com/view/j/sagmb.2003.2.1/sagmb.2003.2.1.1008/sagmb.2003.2.1.1008.xml>.
